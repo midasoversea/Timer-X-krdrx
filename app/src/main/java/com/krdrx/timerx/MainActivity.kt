@@ -1,6 +1,7 @@
 package com.krdrx.timerx
 
 import android.app.Activity
+import android.app.AlarmManager
 import android.app.AlertDialog
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -12,8 +13,6 @@ import android.os.Bundle
 import android.os.CountDownTimer
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
-import android.view.WindowManager
 import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -36,28 +35,27 @@ data class TimerItem(
 class MainActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("timerx", MODE_PRIVATE) }
     private val timers = mutableListOf<TimerItem>()
-    private val rows = mutableMapOf<Int, LinearLayout>()
     private val labels = mutableMapOf<Int, TextView>()
     private val handlers = mutableMapOf<Int, CountDownTimer>()
     private lateinit var list: LinearLayout
     private lateinit var empty: TextView
-    private lateinit var themeButton: TextView
     private var dark = false
     private var nextId = 1
-    private var refreshLoop: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         dark = prefs.getBoolean("dark", false)
         loadTimers()
         createNotificationChannel()
-        render()
-        // Reconstruct deadlines so countdowns continue correctly after process recreation.
-        timers.filter { it.running }.forEach { item ->
-            if (item.endAt <= System.currentTimeMillis()) finishTimer(item)
-            else schedule(item)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
-        startRefresh()
+        render()
+        timers.filter { it.running }.forEach { item ->
+            if (item.endAt <= System.currentTimeMillis()) finishTimer(item) else schedule(item)
+        }
     }
 
     override fun onDestroy() {
@@ -94,7 +92,7 @@ class MainActivity : Activity() {
             setTextColor(secondary)
         })
         header.addView(titleBlock, LinearLayout.LayoutParams(0, -2, 1f))
-        themeButton = TextView(this).apply {
+        header.addView(TextView(this).apply {
             text = if (dark) "☀" else "☾"
             textSize = 22f
             gravity = Gravity.CENTER
@@ -107,18 +105,16 @@ class MainActivity : Activity() {
                 prefs.edit().putBoolean("dark", dark).apply()
                 render()
             }
-        }
-        header.addView(themeButton)
+        })
         content.addView(header)
 
-        val section = TextView(this).apply {
+        content.addView(TextView(this).apply {
             text = "TIMER AKTIF"
             textSize = 11f
             letterSpacing = .12f
             setTextColor(accent)
             setPadding(0, dp(28), 0, dp(12))
-        }
-        content.addView(section)
+        })
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(list)
         empty = TextView(this).apply {
@@ -130,18 +126,18 @@ class MainActivity : Activity() {
         }
         root.addView(content, FrameLayout.LayoutParams(-1, -1))
         root.addView(empty, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
-        val fab = TextView(this).apply {
+        root.addView(TextView(this).apply {
             text = "+"
             textSize = 32f
             gravity = Gravity.CENTER
             setTextColor(0xFFFFFFFF.toInt())
             background = rounded(accent, dp(28))
             elevation = dp(8).toFloat()
+            contentDescription = "Tambah timer"
             setOnClickListener { showAddDialog() }
-        }
-        val fabParams = FrameLayout.LayoutParams(dp(64), dp(64), Gravity.BOTTOM or Gravity.END)
-        fabParams.setMargins(0, 0, dp(22), dp(24))
-        root.addView(fab, fabParams)
+        }, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.BOTTOM or Gravity.END).apply {
+            setMargins(0, 0, dp(22), dp(24))
+        })
 
         window.statusBarColor = bg
         window.navigationBarColor = bg
@@ -153,13 +149,11 @@ class MainActivity : Activity() {
 
     private fun rebuildRows() {
         list.removeAllViews()
-        rows.clear()
         labels.clear()
         empty.visibility = if (timers.isEmpty()) View.VISIBLE else View.GONE
         timers.forEach { item ->
             val panel = if (dark) 0xFF1B2826.toInt() else 0xFFFFFFFF.toInt()
             val primary = if (dark) 0xFFE8F1F0.toInt() else 0xFF172321.toInt()
-            val secondary = if (dark) 0xFF9CB0AC.toInt() else 0xFF667773.toInt()
             val accent = if (dark) TEAL_DARK else TEAL
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -171,19 +165,17 @@ class MainActivity : Activity() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
             }
-            val name = TextView(this).apply {
+            top.addView(TextView(this).apply {
                 text = item.title
                 textSize = 16f
                 setTextColor(primary)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
-            }
-            top.addView(name, LinearLayout.LayoutParams(0, -2, 1f))
-            val state = TextView(this).apply {
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            top.addView(TextView(this).apply {
                 text = when { item.finished -> "SELESAI"; item.running -> "BERJALAN"; else -> "DIJEDA" }
                 textSize = 10f
                 setTextColor(accent)
-            }
-            top.addView(state)
+            })
             card.addView(top)
             val time = TextView(this).apply {
                 text = formatTime(currentRemaining(item))
@@ -212,10 +204,7 @@ class MainActivity : Activity() {
             if (!item.running && !item.finished) action("RESET") { reset(item) }
             action("HAPUS") { delete(item) }
             card.addView(actions)
-            val lp = LinearLayout.LayoutParams(-1, -2)
-            lp.bottomMargin = dp(12)
-            list.addView(card, lp)
-            rows[item.id] = card
+            list.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
             labels[item.id] = time
         }
     }
@@ -229,9 +218,9 @@ class MainActivity : Activity() {
             hint = "Nama timer (mis. Masak jagung)"
             setSingleLine(true)
         }
-        val hours = numberInput("Jam")
-        val minutes = numberInput("Menit")
-        val seconds = numberInput("Detik")
+        val hours = numberInput()
+        val minutes = numberInput()
+        val seconds = numberInput()
         box.addView(name)
         val timeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         listOf(hours, minutes, seconds).forEachIndexed { index, input ->
@@ -241,9 +230,7 @@ class MainActivity : Activity() {
                 textSize = 10f
             })
             col.addView(input, LinearLayout.LayoutParams(-1, dp(54)))
-            val lp = LinearLayout.LayoutParams(0, -2, 1f)
-            lp.marginEnd = dp(8)
-            timeRow.addView(col, lp)
+            timeRow.addView(col, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
         }
         box.addView(timeRow)
         AlertDialog.Builder(this)
@@ -267,11 +254,30 @@ class MainActivity : Activity() {
             }.show()
     }
 
-    private fun numberInput(hintText: String) = EditText(this).apply {
+    private fun numberInput() = EditText(this).apply {
         hint = "0"
         inputType = android.text.InputType.TYPE_CLASS_NUMBER
         gravity = Gravity.CENTER
-        contentDescription = hintText
+    }
+
+    private fun alarmIntent(item: TimerItem): PendingIntent {
+        val intent = Intent(this, TimerReceiver::class.java)
+            .putExtra("timer_id", item.id)
+            .putExtra("label", item.title)
+        return PendingIntent.getBroadcast(
+            this, item.id, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun scheduleAlarm(item: TimerItem) {
+        val alarm = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, item.endAt, alarmIntent(item))
+    }
+
+    private fun cancelAlarm(item: TimerItem) {
+        val alarm = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarm.cancel(alarmIntent(item))
     }
 
     private fun start(item: TimerItem) {
@@ -285,6 +291,7 @@ class MainActivity : Activity() {
 
     private fun schedule(item: TimerItem) {
         handlers[item.id]?.cancel()
+        scheduleAlarm(item)
         val millis = max(0L, item.endAt - System.currentTimeMillis())
         handlers[item.id] = object : CountDownTimer(millis, 250L) {
             override fun onTick(until: Long) {
@@ -299,6 +306,7 @@ class MainActivity : Activity() {
         item.remainingMs = currentRemaining(item)
         item.running = false
         handlers[item.id]?.cancel()
+        cancelAlarm(item)
         item.endAt = 0L
         persist()
         rebuildRows()
@@ -306,6 +314,7 @@ class MainActivity : Activity() {
 
     private fun reset(item: TimerItem) {
         handlers[item.id]?.cancel()
+        cancelAlarm(item)
         item.running = false
         item.finished = false
         item.remainingMs = item.durationMs
@@ -316,18 +325,18 @@ class MainActivity : Activity() {
 
     private fun finishTimer(item: TimerItem) {
         handlers[item.id]?.cancel()
+        cancelAlarm(item)
         item.running = false
         item.finished = true
         item.remainingMs = 0L
         item.endAt = 0L
         persist()
         rebuildRows()
-        val intent = Intent(this, TimerReceiver::class.java).putExtra("timer_id", item.id).putExtra("label", item.title)
-        sendBroadcast(intent)
     }
 
     private fun delete(item: TimerItem) {
         handlers[item.id]?.cancel()
+        cancelAlarm(item)
         timers.remove(item)
         persist()
         rebuildRows()
@@ -363,15 +372,13 @@ class MainActivity : Activity() {
 
     private fun loadTimers() {
         nextId = prefs.getInt("nextId", 1)
-        val raw = prefs.getString("timers", "[]") ?: "[]"
-        val json = JSONArray(raw)
+        val json = JSONArray(prefs.getString("timers", "[]") ?: "[]")
         for (i in 0 until json.length()) {
             val obj = json.getJSONObject(i)
-            val running = obj.optBoolean("running")
             timers.add(TimerItem(
                 obj.getInt("id"), obj.optString("title", "Timer"),
                 obj.optLong("duration"), obj.optLong("remaining"),
-                obj.optLong("endAt"), running, obj.optBoolean("finished")
+                obj.optLong("endAt"), obj.optBoolean("running"), obj.optBoolean("finished")
             ))
         }
     }
@@ -383,21 +390,6 @@ class MainActivity : Activity() {
                 NotificationChannel("timer_done", "Timer selesai", NotificationManager.IMPORTANCE_HIGH)
             )
         }
-    }
-
-    private fun startRefresh() {
-        val handler = android.os.Handler(mainLooper)
-        val runnable = object : Runnable {
-            override fun run() {
-                timers.filter { it.running }.forEach { item ->
-                    item.remainingMs = currentRemaining(item)
-                    labels[item.id]?.text = formatTime(item.remainingMs)
-                }
-                handler.postDelayed(this, 1000L)
-            }
-        }
-        refreshLoop = runnable
-        handler.post(runnable)
     }
 
     private fun rounded(color: Int, radius: Int): android.graphics.drawable.GradientDrawable =
