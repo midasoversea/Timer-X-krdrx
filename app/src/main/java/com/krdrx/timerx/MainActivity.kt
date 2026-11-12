@@ -8,6 +8,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.media.AudioAttributes
+import android.media.RingtoneManager
+import android.provider.OpenableColumns
 import android.os.Build
 import android.os.Bundle
 import android.os.CountDownTimer
@@ -86,11 +90,6 @@ class MainActivity : Activity() {
             setTextColor(primary)
             typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
         })
-        titleBlock.addView(TextView(this).apply {
-            text = "Beberapa hitung mundur, berjalan bersamaan"
-            textSize = 12f
-            setTextColor(secondary)
-        })
         header.addView(titleBlock, LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(TextView(this).apply {
             text = if (dark) "☀" else "☾"
@@ -107,6 +106,24 @@ class MainActivity : Activity() {
             }
         })
         content.addView(header)
+        val soundRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(18), 0, dp(4))
+        }
+        soundRow.addView(TextView(this).apply {
+            text = "Nada: " + selectedSoundName()
+            textSize = 13f
+            setTextColor(secondary)
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        soundRow.addView(TextView(this).apply {
+            text = "GANTI NADA"
+            textSize = 11f
+            setTextColor(accent)
+            setPadding(dp(10), dp(8), 0, dp(8))
+            setOnClickListener { chooseAlarmSound() }
+        })
+        content.addView(soundRow)
 
         content.addView(TextView(this).apply {
             text = "TIMER AKTIF"
@@ -215,7 +232,7 @@ class MainActivity : Activity() {
             setPadding(dp(24), dp(12), dp(24), dp(4))
         }
         val name = EditText(this).apply {
-            hint = "Nama timer (mis. Masak jagung)"
+            hint = "Nama timer"
             setSingleLine(true)
         }
         val hours = numberInput()
@@ -383,12 +400,75 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun selectedSoundName(): String {
+        val uri = prefs.getString("alarm_sound_uri", null) ?: return "Bawaan perangkat"
+        return try {
+            contentResolver.query(Uri.parse(uri), arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) ?: "Audio pilihan" else "Audio pilihan"
+            } ?: "Audio pilihan"
+        } catch (_: Exception) { "Audio pilihan" }
+    }
+
+    private fun chooseAlarmSound() {
+        AlertDialog.Builder(this)
+            .setTitle("Nada timer")
+            .setItems(arrayOf("Gunakan nada bawaan perangkat", "Pilih file MP3/WAV")) { _, which ->
+                if (which == 0) {
+                    prefs.edit().remove("alarm_sound_uri").apply()
+                    refreshAlarmChannel()
+                    render()
+                } else {
+                    val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "audio/*"
+                        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav"))
+                    }
+                    startActivityForResult(pick, 2101)
+                }
+            }.show()
+    }
+
+    @Deprecated("Deprecated by Android; retained for compatibility with the minimum SDK.")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 2101 && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            try {
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                    if (c.moveToFirst()) c.getString(0) else null
+                } ?: ""
+                val lower = name.lowercase(Locale.ROOT)
+                if (!lower.endsWith(".mp3") && !lower.endsWith(".wav")) {
+                    Toast.makeText(this, "Pilih file berformat MP3 atau WAV.", Toast.LENGTH_LONG).show()
+                    return
+                }
+                prefs.edit().putString("alarm_sound_uri", uri.toString()).apply()
+                refreshAlarmChannel()
+                render()
+            } catch (_: Exception) {
+                Toast.makeText(this, "File audio tidak dapat diakses.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun refreshAlarmChannel() {
+        if (Build.VERSION.SDK_INT >= 26) {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.deleteNotificationChannel("timer_done")
+            createNotificationChannel()
+        }
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(
-                NotificationChannel("timer_done", "Timer selesai", NotificationManager.IMPORTANCE_HIGH)
-            )
+            val channel = NotificationChannel("timer_done", "Alarm Timer X", NotificationManager.IMPORTANCE_HIGH)
+            val sound = prefs.getString("alarm_sound_uri", null)?.let { Uri.parse(it) }
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            channel.setSound(sound, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build())
+            channel.enableVibration(true)
+            manager.createNotificationChannel(channel)
         }
     }
 
