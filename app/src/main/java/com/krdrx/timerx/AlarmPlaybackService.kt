@@ -101,8 +101,8 @@ class AlarmPlaybackService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Kontrol Alarm Timer X", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Kontrol suara alarm Timer X"
+                NotificationChannel(CHANNEL_ID, "Alarm Timer X", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Pemberitahuan ketika timer selesai dan kontrol untuk menghentikan alarm"
                     setSound(null, null)
                     enableVibration(false)
                 }
