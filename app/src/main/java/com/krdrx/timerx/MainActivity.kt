@@ -459,7 +459,7 @@ class MainActivity : Activity() {
     private fun refreshAlarmChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.deleteNotificationChannel("timer_done")
+            manager.deleteNotificationChannel("timer_done_v2")
             createNotificationChannel()
         }
     }
@@ -467,7 +467,7 @@ class MainActivity : Activity() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val channel = NotificationChannel("timer_done", "Alarm Timer X", NotificationManager.IMPORTANCE_HIGH)
+            val channel = NotificationChannel("timer_done_v2", "Alarm Timer X", NotificationManager.IMPORTANCE_HIGH)
             val sound = prefs.getString("alarm_sound_uri", null)?.let { Uri.parse(it) }
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             channel.setSound(sound, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build())
