@@ -414,22 +414,17 @@ class MainActivity : Activity() {
     }
 
     private fun chooseAlarmSound() {
-        AlertDialog.Builder(this)
-            .setTitle("Nada timer")
-            .setItems(arrayOf("Gunakan nada bawaan perangkat", "Pilih file MP3/WAV")) { _, which ->
-                if (which == 0) {
-                    prefs.edit().remove("alarm_sound_uri").apply()
-                    refreshAlarmChannel()
-                    render()
-                } else {
-                    val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "audio/*"
-                        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav"))
-                    }
-                    startActivityForResult(pick, 2101)
-                }
-            }.show()
+        val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "audio/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav"))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+        try {
+            startActivityForResult(pick, 2101)
+        } catch (_: Exception) {
+            Toast.makeText(this, "File Manager tidak tersedia.", Toast.LENGTH_LONG).show()
+        }
     }
 
     @Deprecated("Deprecated by Android; retained for compatibility with the minimum SDK.")
@@ -448,29 +443,20 @@ class MainActivity : Activity() {
                     return
                 }
                 prefs.edit().putString("alarm_sound_uri", uri.toString()).apply()
-                refreshAlarmChannel()
                 render()
+                Toast.makeText(this, "Nada alarm diperbarui: $name", Toast.LENGTH_SHORT).show()
             } catch (_: Exception) {
                 Toast.makeText(this, "File audio tidak dapat diakses.", Toast.LENGTH_LONG).show()
             }
         }
     }
 
-    private fun refreshAlarmChannel() {
-        if (Build.VERSION.SDK_INT >= 26) {
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.deleteNotificationChannel("timer_done_v2")
-            createNotificationChannel()
-        }
-    }
-
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val channel = NotificationChannel("timer_done_v2", "Alarm Timer X", NotificationManager.IMPORTANCE_HIGH)
-            val sound = prefs.getString("alarm_sound_uri", null)?.let { Uri.parse(it) }
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            channel.setSound(sound, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build())
+            val channel = NotificationChannel("timer_finished_v1", "Timer selesai", NotificationManager.IMPORTANCE_HIGH)
+            channel.description = "Pemberitahuan ketika hitung mundur selesai"
+            channel.setSound(null, null)
             channel.enableVibration(true)
             manager.createNotificationChannel(channel)
         }
