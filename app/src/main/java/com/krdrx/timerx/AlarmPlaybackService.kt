@@ -87,7 +87,7 @@ class AlarmPlaybackService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("$"+"label selesai")
+            .setContentTitle("$label selesai")
             .setContentText("Alarm sedang berbunyi")
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
