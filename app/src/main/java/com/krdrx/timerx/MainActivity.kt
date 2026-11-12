@@ -349,6 +349,10 @@ class MainActivity : Activity() {
         item.endAt = 0L
         persist()
         rebuildRows()
+        // Also notify when the in-app countdown reaches zero before the alarm broadcast runs.
+        sendBroadcast(Intent(this, TimerReceiver::class.java)
+            .putExtra("timer_id", item.id)
+            .putExtra("label", item.title))
     }
 
     private fun delete(item: TimerItem) {
